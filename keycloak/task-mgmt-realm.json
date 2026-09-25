@@ -1,0 +1,45 @@
+{
+  "realm": "task-mgmt",
+  "enabled": true,
+  "sslRequired": "none",
+  "accessTokenLifespan": 300,
+  "clients": [
+    {
+      "clientId": "task-mgmt-client",
+      "name": "Oeffentlicher Client fuer Login per Username/Passwort (Resource Owner Password Credentials)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false
+    }
+  ],
+  "users": [
+    {
+      "username": "levin",
+      "enabled": true,
+      "firstName": "Levin",
+      "lastName": "Wiederkehr",
+      "email": "levin@example.com",
+      "emailVerified": true,
+      "requiredActions": [],
+      "credentials": [
+        { "type": "password", "value": "levin123", "temporary": false }
+      ]
+    },
+    {
+      "username": "max",
+      "enabled": true,
+      "firstName": "Max",
+      "lastName": "Muster",
+      "email": "max@example.com",
+      "emailVerified": true,
+      "requiredActions": [],
+      "credentials": [
+        { "type": "password", "value": "max123", "temporary": false }
+      ]
+    }
+  ]
+}

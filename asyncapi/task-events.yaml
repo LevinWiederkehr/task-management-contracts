@@ -1,0 +1,114 @@
+asyncapi: 2.6.0
+info:
+  title: Task-Events (Task-Management-System)
+  version: "1.0.0"
+  description: >-
+    Asynchrone Schnittstelle zwischen dem Task-Service (Provider, Delphi) und
+    dem History/Export-Service (Consumer, Python). Der Task-Service published
+    ein Event, sobald sich der Zustand einer Aufgabe aendert; der
+    History-Service konsumiert diese Events, um eine History/Audit-Log pro
+    Benutzer aufzubauen. Diese Datei ist die verbindliche Vertragsgrundlage -
+    Aenderungen am Event-Format werden zuerst hier nachgefuehrt.
+
+    Routing-Model: Fanout. Jede Nachricht wird an alle aktuell gebundenen
+    Consumer verteilt (Broadcast) - passend, weil in Zukunft weitere Services
+    (z.B. Benachrichtigungen) ohne Aenderung am Task-Service dazukommen
+    koennten.
+
+    Transport-Hinweis (bewusste Interoperabilitaets-Demo): der Task-Service
+    (Delphi) published per STOMP (RabbitMQ-STOMP-Plugin, Port 61613), weil es
+    dafuer keine Delphi-AMQP-Bibliothek braucht. Der History-Service (Python)
+    konsumiert ganz normal per AMQP 0-9-1 (z.B. mit "pika", Port 5672).
+    RabbitMQ vermittelt zwischen beiden Protokollen auf demselben Exchange -
+    fuer den Exchange/die Queue spielt es keine Rolle, mit welchem Protokoll
+    publiziert wurde.
+
+servers:
+  rabbitmq-amqp:
+    url: localhost:5672
+    protocol: amqp
+    description: Fuer AMQP-Clients (z.B. Python/pika).
+  rabbitmq-stomp:
+    url: localhost:61613
+    protocol: stomp
+    description: Fuer STOMP-Clients (z.B. Delphi, destination "/exchange/task-events/").
+
+channels:
+  task-events:
+    description: >-
+      Fanout-Exchange "task-events". Der History-Service bindet dafuer beim
+      Start eine eigene, exklusive Queue an diesen Exchange (wie beim
+      Fanout-Beispiel im M321-Demo-Projekt) und erhaelt so eine Kopie jedes
+      Events.
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: task-events
+          type: fanout
+          durable: true
+          autoDelete: false
+    publish:
+      operationId: publishTaskEvent
+      summary: Meldet eine Zustandsaenderung einer Aufgabe.
+      message:
+        $ref: "#/components/messages/TaskEvent"
+    subscribe:
+      operationId: consumeTaskEvent
+      summary: Empfaengt jede Zustandsaenderung (Broadcast) fuer die History.
+      message:
+        $ref: "#/components/messages/TaskEvent"
+
+components:
+  messages:
+    TaskEvent:
+      name: TaskEvent
+      title: Task-Event
+      contentType: application/json
+      summary: >-
+        Ein einzelnes Ereignis zu einer Aufgabe. Ein Event-Typ-Feld statt
+        getrennter Exchanges/Routingkeys, weil Fanout ohnehin an alle
+        Consumer verteilt - der Consumer filtert/verarbeitet nach eventType.
+      payload:
+        $ref: "#/components/schemas/TaskEvent"
+
+  schemas:
+    TaskEvent:
+      type: object
+      required: [eventId, eventType, taskId, ownerUserId, title, status, occurredAt]
+      properties:
+        eventId:
+          type: string
+          format: uuid
+          description: Eindeutige ID des Events (fuer Idempotenz/Deduplizierung beim Consumer).
+        eventType:
+          type: string
+          enum: [TASK_CREATED, TASK_UPDATED, TASK_COMPLETED, TASK_DELETED]
+          description: Art der Zustandsaenderung.
+        taskId:
+          type: string
+          description: ID der betroffenen Aufgabe.
+        ownerUserId:
+          type: string
+          description: >-
+            "sub"-Claim (Keycloak-User-ID) des Besitzers der Aufgabe - damit
+            der History-Service die History pro Benutzer filtern kann.
+        title:
+          type: string
+          description: Titel der Aufgabe zum Zeitpunkt des Events.
+        status:
+          type: string
+          enum: [OPEN, DONE, DELETED]
+          description: Status der Aufgabe zum Zeitpunkt des Events.
+        occurredAt:
+          type: string
+          format: date-time
+          description: Zeitpunkt der Aenderung (ISO-8601 mit Offset).
+      example:
+        eventId: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+        eventType: "TASK_COMPLETED"
+        taskId: "42"
+        ownerUserId: "1c3274f0-cd08-4377-afb6-eb7d591a38c6"
+        title: "Rechnung schreiben"
+        status: "DONE"
+        occurredAt: "2026-09-18T10:15:30+02:00"

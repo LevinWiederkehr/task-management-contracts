@@ -1,0 +1,41 @@
+# Gemeinsame Infrastruktur fuer das Task-Management-System. Beide Services
+# (task-service-delphi, history-export-service-python) laufen in eigenen
+# Repos/Containern und verbinden sich hierher - entweder ueber die auf den
+# Host gemappten Ports (lokale Entwicklung ohne Docker) oder, falls sie
+# selbst containerisiert laufen, ueber das gemeinsame Docker-Netzwerk
+# "task-mgmt-net" (siehe networks-Abschnitt unten).
+#
+# Aufruf:  docker compose up --build
+#   Keycloak (Admin):  http://localhost:8082  (Login: admin / admin)
+#   RabbitMQ Mgmt-UI:  http://localhost:15672 (Login: guest / guest)
+#   RabbitMQ AMQP:      localhost:5672   (fuer den Python-Consumer/pika)
+#   RabbitMQ STOMP:     localhost:61613  (fuer den Delphi-Publisher)
+
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    command: start-dev --import-realm
+    environment:
+      - KEYCLOAK_ADMIN=admin
+      - KEYCLOAK_ADMIN_PASSWORD=admin
+      - KC_HOSTNAME=http://localhost:8082
+      - KC_HTTP_ENABLED=true
+    ports:
+      - "8082:8080"
+    volumes:
+      - ./keycloak/task-mgmt-realm.json:/opt/keycloak/data/import/task-mgmt-realm.json:ro
+    networks:
+      - task-mgmt-net
+
+  rabbitmq:
+    build: ./rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+      - "61613:61613"
+    networks:
+      - task-mgmt-net
+
+networks:
+  task-mgmt-net:
+    name: task-mgmt-net

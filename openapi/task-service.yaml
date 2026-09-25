@@ -1,0 +1,222 @@
+openapi: 3.0.3
+info:
+  title: Task-Service (Task-Management-System)
+  version: "1.0.0"
+  description: >-
+    Schnittstellenbeschreibung fuer den Task-Service (Provider:
+    task-service-delphi). Verwaltet Aufgaben ("Tasks") pro eingeloggtem
+    Benutzer. Diese Datei ist die verbindliche Vertragsgrundlage - der
+    History/Export-Service und jeder andere Consumer richten sich danach.
+    Login/Authentifizierung laeuft ueber den gemeinsamen Keycloak
+    (contracts/docker-compose.yml, Realm "task-mgmt"); der Service selbst
+    prueft nur den Access-Token, er nimmt keine Passwoerter entgegen.
+
+servers:
+  - url: http://localhost:8090
+    description: Lokale Instanz des Task-Service (Delphi)
+
+security:
+  - oauth2Password: []
+
+paths:
+  /health:
+    get:
+      summary: Health-Check.
+      operationId: getHealth
+      security: []
+      responses:
+        "200":
+          description: Service ist betriebsbereit.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  /tasks:
+    get:
+      summary: Listet alle Aufgaben des eingeloggten Benutzers.
+      operationId: listTasks
+      responses:
+        "200":
+          description: Liste der eigenen Aufgaben.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Task"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      summary: Legt eine neue Aufgabe an. Published ein TASK_CREATED-Event.
+      operationId: createTask
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TaskCreateRequest"
+            example:
+              title: "Rechnung schreiben"
+              description: "Fuer Kunde XY, Faelligkeit Ende Monat"
+      responses:
+        "201":
+          description: Aufgabe wurde angelegt.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /tasks/{taskId}:
+    parameters:
+      - name: taskId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: Liest eine einzelne eigene Aufgabe.
+      operationId: getTask
+      responses:
+        "200":
+          description: Die Aufgabe.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      summary: >-
+        Aktualisiert eine Aufgabe (z.B. Titel aendern oder als erledigt
+        markieren). Published TASK_UPDATED bzw. TASK_COMPLETED.
+      operationId: updateTask
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TaskUpdateRequest"
+      responses:
+        "200":
+          description: Aufgabe wurde aktualisiert.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      summary: Loescht eine Aufgabe. Published TASK_DELETED.
+      operationId: deleteTask
+      responses:
+        "204":
+          description: Aufgabe wurde geloescht.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+components:
+  securitySchemes:
+    oauth2Password:
+      type: oauth2
+      description: >-
+        Login per Username/Passwort gegen den gemeinsamen Keycloak (Realm
+        "task-mgmt", Client "task-mgmt-client", kein Secret - public
+        client). Der Access-Token wird als "Authorization: Bearer <token>"
+        mitgeschickt; die Task-Zugehoerigkeit ergibt sich aus dem
+        "sub"-Claim, nicht aus einer Rolle.
+      flows:
+        password:
+          tokenUrl: http://localhost:8082/realms/task-mgmt/protocol/openid-connect/token
+          scopes: {}
+
+  responses:
+    Unauthorized:
+      description: Fehlender, ungueltiger oder abgelaufener Access-Token.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    BadRequest:
+      description: Ungueltiger Request-Body.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    NotFound:
+      description: Aufgabe existiert nicht oder gehoert einem anderen Benutzer.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+
+  schemas:
+    Task:
+      type: object
+      required: [id, ownerUserId, title, status, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+        ownerUserId:
+          type: string
+          description: "sub"-Claim des Besitzers (aus dem Access-Token, nicht vom Client gesetzt).
+        title:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+          enum: [OPEN, DONE]
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    TaskCreateRequest:
+      type: object
+      required: [title]
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+
+    TaskUpdateRequest:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+          enum: [OPEN, DONE]
+
+    HealthResponse:
+      type: object
+      required: [status, service]
+      properties:
+        status:
+          type: string
+          enum: [UP]
+        service:
+          type: string
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
