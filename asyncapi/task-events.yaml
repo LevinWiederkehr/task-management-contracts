@@ -40,7 +40,7 @@ info:
     dafuer keine Delphi-AMQP-Bibliothek braucht. Der History-Service (Python)
     konsumiert ganz normal per AMQP 0-9-1 (z.B. mit "pika", Port 5672).
     RabbitMQ vermittelt zwischen beiden Protokollen auf demselben Exchange.
-    Die STOMP-Header "correlation-id" und "message-id" (=eventId) werden von
+    Die STOMP-Header "correlation-id" und "amqp-message-id" (=eventId) werden von
     RabbitMQ auf die AMQP-Properties correlation_id und message_id abgebildet.
 
 servers:

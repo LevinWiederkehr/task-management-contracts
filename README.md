@@ -1,107 +1,105 @@
 # Task-Management-System - Contracts
 
 Dieses Repo ist die **verbindliche Vertragsgrundlage** zwischen den zwei
-unabhaengig entwickelten Services und die **gemeinsame Infrastruktur**, gegen
-die beide laufen. Es enthaelt keinen Business-Code.
+unabhaengig entwickelten Services, die **gemeinsame Infrastruktur** und der
+**Einstiegspunkt fuer das Gesamtsystem**. Es enthaelt keinen Business-Code.
 
-| Repo | Person | Sprache | Aufgabe |
-| --- | --- | --- | --- |
-| `task-service-delphi` | Levin | Delphi | Aufgaben verwalten (CRUD), published Task-Events |
-| `history-export-service-python` | Freund | Python | konsumiert Task-Events, bietet History + Export |
-| **`contracts`** (dieses Repo) | gemeinsam | - | OpenAPI/AsyncAPI-Vertraege + Keycloak/RabbitMQ |
+| Repo | Sprache | Aufgabe |
+| --- | --- | --- |
+| [`task-service-delphi`](https://github.com/LevinWiederkehr/task-service-delphi) | Delphi | Aufgaben verwalten (CRUD), published Task-Events (Outbox) |
+| [`history-export-service-python`](https://github.com/Brandleee/history-export-service-python) | Python | konsumiert Task-Events, bietet History + Export |
+| **`contracts`** (dieses Repo) | - | OpenAPI/AsyncAPI-Vertraege, Infrastruktur (Keycloak, RabbitMQ, Seq), Start-Skripte, Doku |
 
-## Regel: Contract-First
+## Schnellstart: Gesamtsystem mit einem Befehl
+
+Voraussetzungen: Windows, Docker Desktop, die drei Repos nebeneinander im
+selben Ordner geklont.
+
+```
+./start-all.ps1            # alles starten (2 History-Instanzen)
+./start-all.ps1 -Test      # starten + End-to-End-Test
+./stop-all.ps1             # alles stoppen (-Purge loescht auch die Daten)
+```
+
+| Was | Adresse | Login |
+| --- | --- | --- |
+| Web-Oberflaeche | http://localhost:8091/ui | `levin`/`levin123`, `max`/`max123` |
+| Task-Service (Delphi) | http://localhost:8090 (bzw. 8095, falls 8090 belegt) | Bearer-Token |
+| History-Service (Load-Balancer) | http://localhost:8091, Swagger: `/docs` | Bearer-Token |
+| Seq (zentrale Logs) | http://localhost:5341 | - |
+| RabbitMQ Management | http://localhost:15672 | `guest`/`guest` |
+| Keycloak Admin | http://localhost:8082 | `admin`/`admin` |
+
+Systemtest: `./scripts/e2e-test.ps1 -Resilience` (Durchstich, Autorisierung,
+Lastverteilung, Korrelation in Seq, Ausfall des Consumers).
+
+## Dokumentation
+
+| Dokument | Inhalt |
+| --- | --- |
+| [`ARCHITECTURE.md`](ARCHITECTURE.md) | Service-Grenzen, Protokolle, sync/async Datenfluesse, Fehlerbehandlung, Deployment-Topologie, Skalierung, Sicherheit |
+| [`EVOLUTION.md`](EVOLUTION.md) | Versionierung, Tolerant Reader, Expand and Contract, Live-Migration eines Consumers |
+| [`CHANGELOG.md`](CHANGELOG.md) | Vertragsversionen (Git-Tags `vX.Y.Z`) |
+| [`DEMO.md`](DEMO.md) | Drehbuch fuer die Live-Demo |
+
+## Vertraege (Contract-First)
 
 Aendert sich ein Endpoint, ein Feld oder das Event-Format, wird das **zuerst
 hier** angepasst (per PR, den beide reviewen), erst danach in den jeweiligen
-Service uebernommen. Kein Service darf eigenmaechtig vom Vertrag abweichen -
-sonst bricht die Interoperabilitaet, ohne dass man es sofort merkt.
+Service uebernommen - nach den Regeln in [`EVOLUTION.md`](EVOLUTION.md).
 
 - [`openapi/task-service.yaml`](openapi/task-service.yaml) - REST-API des Task-Service
 - [`openapi/history-export-service.yaml`](openapi/history-export-service.yaml) - REST-API des History/Export-Service
-- [`asyncapi/task-events.yaml`](asyncapi/task-events.yaml) - asynchrones Event-Format zwischen den beiden
+- [`asyncapi/task-events.yaml`](asyncapi/task-events.yaml) - Event-Format zwischen den beiden
 
-Beide OpenAPI-Dateien lassen sich z.B. auf https://editor.swagger.io ansehen
-und testen (Datei-Inhalt einfuegen).
-
-Die Vertraege sind versioniert (SemVer in `info.version`, Git-Tag `vX.Y.Z`,
-siehe [`CHANGELOG.md`](CHANGELOG.md)). Wie Breaking Changes ohne
-gleichzeitiges Deployment ablaufen (Expand and Contract, Tolerant Reader),
-steht in [`EVOLUTION.md`](EVOLUTION.md). Jeder Push wird per GitHub Actions
-mit [Spectral](https://github.com/stoplightio/spectral) gelintet
-(`.github/workflows/lint-contracts.yml`), lokal:
+Aktuelle Version: **1.1.0**. Jeder Push wird per GitHub Actions mit
+[Spectral](https://github.com/stoplightio/spectral) gelintet, lokal:
 
 ```
 npx @stoplight/spectral-cli lint openapi/*.yaml asyncapi/*.yaml
 ```
 
-## Architektur-Uebersicht
+## Architektur in Kuerze
 
-```
-                     Login (Username/Passwort)
-   Client  ────────────────────────────────────────▶  Keycloak
-     │                                                 (Realm "task-mgmt")
-     │  Bearer-Token                                        │
-     │                                          JWKS /       │ JWKS
-     ▼                                          Issuer       ▼
-  Task-Service (Delphi, :8090) ◀──────────────────────  History/Export-Service
-     │  REST: /tasks (CRUD)                              (Python, :8091)
-     │                                                 REST: /history, /export
-     │  STOMP SEND                                           ▲
-     │  (Aenderung an Aufgabe)                                │  AMQP consume
-     ▼                                                        │
-  RabbitMQ Fanout-Exchange "task-events" ────────────────────┘
-```
+Details und Diagramme: [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
-- **Synchron**: beide Services haben eine eigene REST-API (OpenAPI), per
-  OAuth2 (Bearer-Token) abgesichert.
-- **Asynchron**: der Task-Service published bei jeder Aenderung ein Event an
-  den Fanout-Exchange `task-events`; der History-Service konsumiert es. Die
-  beiden Services kennen sich nicht direkt, nur ueber den Broker.
-- **Authentifizierung**: ein gemeinsamer Keycloak (Realm `task-mgmt`). Beide
-  Services validieren denselben Access-Token unabhaengig voneinander (keine
-  Session, kein gemeinsamer State) - das ist der Punkt bei OAuth2/JWT.
-- **Autorisierung**: **ressourcenbasiert**, nicht rollenbasiert - jede
-  Aufgabe/History-Eintrag gehoert einem Benutzer (`sub`-Claim aus dem Token).
-  Ein Service gibt nur Daten heraus, die dem eingeloggten Benutzer gehoeren.
-  (Anders als im M321-Demo-Projekt, wo es um Rollen ging - hier geht es um
-  Besitz.)
+- **Synchron**: beide Services haben eine eigene, versionierte REST-API
+  (`/v1`), per OAuth2 (Bearer-Token von Keycloak) abgesichert.
+- **Asynchron**: der Task-Service schreibt jedes Event per Transactional
+  Outbox und published es an den Fanout-Exchange `task-events`; der
+  History-Service konsumiert es aus einer durable Queue (Competing
+  Consumers, idempotent ueber `eventId`). Die Services kennen sich nicht.
+- **Authentifizierung**: gemeinsamer Keycloak (Realm `task-mgmt`). Beide
+  Services pruefen Tokens unabhaengig inkl. Signatur (RS256/JWKS).
+- **Autorisierung**: ressourcenbasiert ueber den `sub`-Claim.
+- **Observability**: `X-Correlation-ID` laeuft durch Requests, Events und
+  Logs beider Services, zentral durchsuchbar in Seq.
 
 ### Bewusste Interoperabilitaets-Demo: zwei Protokolle, ein Exchange
 
 Fuer Delphi gibt es keine offizielle AMQP-0-9-1-Client-Library. Statt eine
-inoffizielle/unsichere einzubinden, published der Task-Service per **STOMP**
-(RabbitMQ-STOMP-Plugin, Port 61613) - ein einfaches Textprotokoll, das sich
-mit ein paar Zeilen TCP-Code selbst implementieren laesst. Der Python-Service
-konsumiert ganz normal per **AMQP** (z.B. mit `pika`, Port 5672). RabbitMQ
-vermittelt zwischen beiden Protokollen auf demselben Exchange - fuer den
-Exchange spielt es keine Rolle, mit welchem Protokoll publiziert wurde. Das
-ist keine Einschraenkung, sondern zeigt, dass "verteilte Systeme" nicht
-bedeutet, dass alle dieselbe Sprache/Bibliothek nutzen muessen - nur derselbe
-Vertrag zaehlt.
+inoffizielle einzubinden, published der Task-Service per **STOMP**
+(RabbitMQ-STOMP-Plugin, Port 61613). Der Python-Service konsumiert per
+**AMQP** (`pika`, Port 5672). RabbitMQ vermittelt zwischen beiden
+Protokollen auf demselben Exchange und bildet sogar die Header
+(`correlation-id`, `amqp-message-id`, `persistent`) auf AMQP-Properties ab.
 
-## Gemeinsame Infrastruktur starten
+## Infrastruktur (dieses Repo)
 
-```
-docker compose up --build
-```
+`docker compose up -d --build` startet nur die Infrastruktur (macht
+`start-all.ps1` automatisch):
 
-| Was | URL / Zugriff |
-| --- | --- |
-| Keycloak (Admin-Konsole) | http://localhost:8082 (Login `admin`/`admin`) |
-| RabbitMQ Management-UI | http://localhost:15672 (Login `guest`/`guest`) |
-| RabbitMQ AMQP (fuer Python/pika) | `localhost:5672` |
-| RabbitMQ STOMP (fuer Delphi) | `localhost:61613` |
+- **Keycloak** - Realm wird aus [`keycloak/task-mgmt-realm.json`](keycloak/task-mgmt-realm.json) importiert
+- **RabbitMQ** mit STOMP-Plugin. Exchange, durable Queue und Binding
+  werden aus [`rabbitmq/definitions.json`](rabbitmq/definitions.json)
+  geladen - die Queue existiert also schon, bevor der Consumer das erste Mal
+  startet (keine verlorenen Events beim Hochfahren).
+- **Seq** - zentrale Log-Aggregation, beide Services schicken JSON-Logs (CLEF)
 
-Realm `task-mgmt` wird automatisch importiert (siehe
-[`keycloak/task-mgmt-realm.json`](keycloak/task-mgmt-realm.json)):
+Alle Container haengen am Netzwerk `task-mgmt-net`; das Compose-File des
+History-Service tritt diesem Netzwerk bei.
 
-| Username | Passwort | Client-ID (public, kein Secret) |
-| --- | --- | --- |
-| `levin` | `levin123` | `task-mgmt-client` |
-| `max` | `max123` | `task-mgmt-client` |
-
-Login-Token holen (Resource-Owner-Password-Flow):
+Token manuell holen:
 
 ```
 curl -X POST http://localhost:8082/realms/task-mgmt/protocol/openid-connect/token \
@@ -109,21 +107,14 @@ curl -X POST http://localhost:8082/realms/task-mgmt/protocol/openid-connect/toke
   -d "grant_type=password&client_id=task-mgmt-client&username=levin&password=levin123"
 ```
 
-Der `access_token` aus der Antwort wird dann als
-`Authorization: Bearer <token>` an beide Services mitgeschickt.
+## Containerisierung des Delphi-Service
 
-### Fuer eigene Docker-Container beider Services
-
-Beide Service-Repos koennen ihre Container an das hier deklarierte,
-gemeinsame Netzwerk `task-mgmt-net` haengen (per `docker-compose.yml` im
-jeweiligen Repo, `networks: default: external: true, name: task-mgmt-net`)
-und erreichen Keycloak/RabbitMQ dann per Hostname `keycloak`/`rabbitmq` statt
-`localhost`. Muss die gemeinsame Infra vorher stehen (`docker compose up` in
-diesem Repo).
-
-## Naechste Schritte pro Person
-
-Siehe die README im jeweiligen Service-Repo - beide enthalten ein
-lauffaehiges Grundgerueest (Health-Endpoint, Auth-Pruefung, ein Event wird
-tatsaechlich End-to-End durchgereicht) mit klar markierten TODOs fuer den
-Rest (vollstaendiges CRUD, Persistenz, Export-Formate, Fehlerbehandlung, ...).
+Infrastruktur und History-Service laufen in Linux-Containern. Der
+Task-Service laeuft als Windows-Prozess (`TaskService.exe`), den
+`start-all.ps1` mitstartet. Ein Windows-Container wurde bewusst nicht
+gewaehlt: Docker Desktop betreibt entweder Linux- oder Windows-Container,
+nicht beide in einem Compose-Projekt - Keycloak, RabbitMQ und Postgres gibt
+es nur als Linux-Images. Der saubere Weg ist ein Linux-Build des
+Delphi-Service (Delphi Enterprise, Linux64-Compiler) - der Code nutzt nur
+plattformunabhaengige Units, bis auf die RS256-Pruefung ueber `bcrypt.dll`,
+die dafuer auf OpenSSL umgestellt werden muesste.

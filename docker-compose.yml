@@ -1,29 +1,38 @@
 # Gemeinsame Infrastruktur fuer das Task-Management-System. Beide Services
 # (task-service-delphi, history-export-service-python) laufen in eigenen
-# Repos/Containern und verbinden sich hierher - entweder ueber die auf den
-# Host gemappten Ports (lokale Entwicklung ohne Docker) oder, falls sie
-# selbst containerisiert laufen, ueber das gemeinsame Docker-Netzwerk
-# "task-mgmt-net" (siehe networks-Abschnitt unten).
+# Repos und verbinden sich hierher - entweder ueber die auf den Host
+# gemappten Ports oder, wenn sie containerisiert laufen, ueber das gemeinsame
+# Docker-Netzwerk "task-mgmt-net".
 #
-# Aufruf:  docker compose up --build
+# Gesamtsystem starten: ./start-all.ps1 (startet auch beide Services)
+# Nur Infrastruktur:    docker compose up -d --build
 #   Keycloak (Admin):  http://localhost:8082  (Login: admin / admin)
 #   RabbitMQ Mgmt-UI:  http://localhost:15672 (Login: guest / guest)
-#   RabbitMQ AMQP:      localhost:5672   (fuer den Python-Consumer/pika)
-#   RabbitMQ STOMP:     localhost:61613  (fuer den Delphi-Publisher)
+#   RabbitMQ AMQP:     localhost:5672   (fuer den Python-Consumer/pika)
+#   RabbitMQ STOMP:    localhost:61613  (fuer den Delphi-Publisher)
+#   Seq (Logs):        http://localhost:5341  (zentrale Log-Suche ueber alle Services)
 
 services:
   keycloak:
     image: quay.io/keycloak/keycloak:26.0
-    command: start-dev --import-realm
+    command: start-dev --import-realm --health-enabled=true
     environment:
       - KEYCLOAK_ADMIN=admin
       - KEYCLOAK_ADMIN_PASSWORD=admin
       - KC_HOSTNAME=http://localhost:8082
       - KC_HTTP_ENABLED=true
+      # Container (z.B. History-Service) duerfen Keycloak intern unter keycloak:8080 ansprechen.
+      - KC_HOSTNAME_BACKCHANNEL_DYNAMIC=true
     ports:
       - "8082:8080"
     volumes:
       - ./keycloak/task-mgmt-realm.json:/opt/keycloak/data/import/task-mgmt-realm.json:ro
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.0\r\n\r\n' >&3 && grep -q UP <&3"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
     networks:
       - task-mgmt-net
 
@@ -33,8 +42,35 @@ services:
       - "5672:5672"
       - "15672:15672"
       - "61613:61613"
+    volumes:
+      # Durable Queues + persistente Nachrichten ueberleben einen Broker-Neustart.
+      - rabbitmq-data:/var/lib/rabbitmq
+    hostname: rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+    restart: unless-stopped
     networks:
       - task-mgmt-net
+
+  seq:
+    image: datalust/seq:2024.3
+    environment:
+      - ACCEPT_EULA=Y
+      - SEQ_FIRSTRUN_NOAUTHENTICATION=true
+    ports:
+      - "5341:80"
+    volumes:
+      - seq-data:/data
+    restart: unless-stopped
+    networks:
+      - task-mgmt-net
+
+volumes:
+  rabbitmq-data:
+  seq-data:
 
 networks:
   task-mgmt-net:
