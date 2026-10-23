@@ -35,8 +35,13 @@ function Invoke-Docker {
     $previous = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
     try {
-        & docker @args 2>&1 | ForEach-Object { Write-Host "   $_" -ForegroundColor DarkGray }
-        if ($LASTEXITCODE -ne 0) { throw "docker $($args -join ' ') ist fehlgeschlagen (Exit $LASTEXITCODE)" }
+        # Ausgabe nur bei Fehlern zeigen - sonst ist das Build-Log zu laut.
+        $output = & docker @args 2>&1 | ForEach-Object { "$_" }
+        if ($LASTEXITCODE -ne 0) {
+            $output | ForEach-Object { Write-Host "   $_" -ForegroundColor DarkGray }
+            throw "docker $($args -join ' ') ist fehlgeschlagen (Exit $LASTEXITCODE)"
+        }
+        Write-Host "   ok"
     } finally { $ErrorActionPreference = $previous }
 }
 
