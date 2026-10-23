@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Task-Service (Task-Management-System)
-  version: "1.0.0"
+  version: "1.1.0"
   description: >-
     Schnittstellenbeschreibung fuer den Task-Service (Provider:
     task-service-delphi). Verwaltet Aufgaben ("Tasks") pro eingeloggtem
@@ -10,6 +10,18 @@ info:
     Login/Authentifizierung laeuft ueber den gemeinsamen Keycloak
     (contracts/docker-compose.yml, Realm "task-mgmt"); der Service selbst
     prueft nur den Access-Token, er nimmt keine Passwoerter entgegen.
+
+
+    Versionierung: die API-Hauptversion steht im Pfad (/v1/...). Die
+    unversionierten Pfade (/tasks...) aus Vertrag 1.0.0 bleiben als
+    "deprecated" Alias bestehen, bis kein Consumer sie mehr nutzt (Expand and
+    Contract, siehe EVOLUTION.md).
+
+
+    Korrelation: jeder Request darf einen Header "X-Correlation-ID"
+    mitschicken. Fehlt er, erzeugt der Service eine neue ID. Die ID wird in
+    der Response zurueckgegeben, in jedem Log-Eintrag mitgeloggt und im
+    ausgeloesten Task-Event (Feld "correlationId") weitergereicht.
 
 servers:
   - url: http://localhost:8090
@@ -21,7 +33,7 @@ security:
 paths:
   /health:
     get:
-      summary: Health-Check.
+      summary: Health-Check (prueft auch die Datenbank).
       operationId: getHealth
       security: []
       responses:
@@ -32,62 +44,42 @@ paths:
               schema:
                 $ref: "#/components/schemas/HealthResponse"
 
-  /tasks:
+  /v1/tasks:
     get:
       summary: Listet alle Aufgaben des eingeloggten Benutzers.
-      operationId: listTasks
+      operationId: listTasksV1
+      parameters:
+        - $ref: "#/components/parameters/CorrelationId"
       responses:
         "200":
-          description: Liste der eigenen Aufgaben.
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/Task"
+          $ref: "#/components/responses/TaskList"
         "401":
           $ref: "#/components/responses/Unauthorized"
     post:
       summary: Legt eine neue Aufgabe an. Published ein TASK_CREATED-Event.
-      operationId: createTask
+      operationId: createTaskV1
+      parameters:
+        - $ref: "#/components/parameters/CorrelationId"
       requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/TaskCreateRequest"
-            example:
-              title: "Rechnung schreiben"
-              description: "Fuer Kunde XY, Faelligkeit Ende Monat"
+        $ref: "#/components/requestBodies/TaskCreate"
       responses:
         "201":
-          description: Aufgabe wurde angelegt.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Task"
+          $ref: "#/components/responses/SingleTask"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
 
-  /tasks/{taskId}:
+  /v1/tasks/{taskId}:
     parameters:
-      - name: taskId
-        in: path
-        required: true
-        schema:
-          type: string
+      - $ref: "#/components/parameters/TaskId"
+      - $ref: "#/components/parameters/CorrelationId"
     get:
       summary: Liest eine einzelne eigene Aufgabe.
-      operationId: getTask
+      operationId: getTaskV1
       responses:
         "200":
-          description: Die Aufgabe.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Task"
+          $ref: "#/components/responses/SingleTask"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
@@ -96,27 +88,88 @@ paths:
       summary: >-
         Aktualisiert eine Aufgabe (z.B. Titel aendern oder als erledigt
         markieren). Published TASK_UPDATED bzw. TASK_COMPLETED.
-      operationId: updateTask
+      operationId: updateTaskV1
       requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/TaskUpdateRequest"
+        $ref: "#/components/requestBodies/TaskUpdate"
       responses:
         "200":
-          description: Aufgabe wurde aktualisiert.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Task"
+          $ref: "#/components/responses/SingleTask"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
     delete:
       summary: Loescht eine Aufgabe. Published TASK_DELETED.
+      operationId: deleteTaskV1
+      responses:
+        "204":
+          description: Aufgabe wurde geloescht.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # --- Deprecated: unversionierte Pfade aus Vertrag 1.0.0 (gleiches Verhalten wie /v1) ---
+
+  /tasks:
+    get:
+      summary: "Deprecated - Alias fuer GET /v1/tasks."
+      operationId: listTasks
+      deprecated: true
+      responses:
+        "200":
+          $ref: "#/components/responses/TaskList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      summary: "Deprecated - Alias fuer POST /v1/tasks."
+      operationId: createTask
+      deprecated: true
+      requestBody:
+        $ref: "#/components/requestBodies/TaskCreate"
+      responses:
+        "201":
+          $ref: "#/components/responses/SingleTask"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /tasks/{taskId}:
+    parameters:
+      - $ref: "#/components/parameters/TaskId"
+    get:
+      summary: "Deprecated - Alias fuer GET /v1/tasks/{taskId}."
+      operationId: getTask
+      deprecated: true
+      responses:
+        "200":
+          $ref: "#/components/responses/SingleTask"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      summary: "Deprecated - Alias fuer PUT /v1/tasks/{taskId}."
+      operationId: updateTask
+      deprecated: true
+      requestBody:
+        $ref: "#/components/requestBodies/TaskUpdate"
+      responses:
+        "200":
+          $ref: "#/components/responses/SingleTask"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      summary: "Deprecated - Alias fuer DELETE /v1/tasks/{taskId}."
       operationId: deleteTask
+      deprecated: true
       responses:
         "204":
           description: Aufgabe wurde geloescht.
@@ -134,13 +187,72 @@ components:
         "task-mgmt", Client "task-mgmt-client", kein Secret - public
         client). Der Access-Token wird als "Authorization: Bearer <token>"
         mitgeschickt; die Task-Zugehoerigkeit ergibt sich aus dem
-        "sub"-Claim, nicht aus einer Rolle.
+        "sub"-Claim, nicht aus einer Rolle. Der Service prueft Signatur
+        (RS256 gegen die JWKS des Realms), Issuer und Ablaufzeit.
       flows:
         password:
           tokenUrl: http://localhost:8082/realms/task-mgmt/protocol/openid-connect/token
           scopes: {}
 
+  parameters:
+    TaskId:
+      name: taskId
+      in: path
+      required: true
+      schema:
+        type: string
+    CorrelationId:
+      name: X-Correlation-ID
+      in: header
+      required: false
+      description: Korrelations-ID fuer das Tracing ueber Service-Grenzen hinweg.
+      schema:
+        type: string
+
+  headers:
+    CorrelationId:
+      description: Die verwendete (uebernommene oder neu erzeugte) Korrelations-ID.
+      schema:
+        type: string
+
+  requestBodies:
+    TaskCreate:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/TaskCreateRequest"
+          example:
+            title: "Rechnung schreiben"
+            description: "Fuer Kunde XY, Faelligkeit Ende Monat"
+    TaskUpdate:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/TaskUpdateRequest"
+
   responses:
+    TaskList:
+      description: Liste der eigenen Aufgaben.
+      headers:
+        X-Correlation-ID:
+          $ref: "#/components/headers/CorrelationId"
+      content:
+        application/json:
+          schema:
+            type: array
+            items:
+              $ref: "#/components/schemas/Task"
+    SingleTask:
+      description: Die Aufgabe.
+      headers:
+        X-Correlation-ID:
+          $ref: "#/components/headers/CorrelationId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Task"
     Unauthorized:
       description: Fehlender, ungueltiger oder abgelaufener Access-Token.
       content:
@@ -169,7 +281,7 @@ components:
           type: string
         ownerUserId:
           type: string
-          description: "sub"-Claim des Besitzers (aus dem Access-Token, nicht vom Client gesetzt).
+          description: Der "sub"-Claim des Besitzers (aus dem Access-Token, nicht vom Client gesetzt).
         title:
           type: string
         description:
@@ -180,9 +292,11 @@ components:
         createdAt:
           type: string
           format: date-time
+          description: UTC (ISO-8601 mit "Z").
         updatedAt:
           type: string
           format: date-time
+          description: UTC (ISO-8601 mit "Z").
 
     TaskCreateRequest:
       type: object
@@ -190,16 +304,22 @@ components:
       properties:
         title:
           type: string
+          minLength: 1
+          maxLength: 200
         description:
           type: string
+          maxLength: 2000
 
     TaskUpdateRequest:
       type: object
       properties:
         title:
           type: string
+          minLength: 1
+          maxLength: 200
         description:
           type: string
+          maxLength: 2000
         status:
           type: string
           enum: [OPEN, DONE]
@@ -213,10 +333,15 @@ components:
           enum: [UP]
         service:
           type: string
+        version:
+          type: string
+          description: Implementierte Vertragsversion.
 
     ErrorResponse:
       type: object
       required: [error]
       properties:
         error:
+          type: string
+        correlationId:
           type: string

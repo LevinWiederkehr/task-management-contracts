@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: History/Export-Service (Task-Management-System)
-  version: "1.0.0"
+  version: "1.1.0"
   description: >-
     Schnittstellenbeschreibung fuer den History/Export-Service (Provider:
     history-export-service-python). Baut eine History pro Benutzer auf, indem
@@ -9,9 +9,20 @@ info:
     konsumiert, und bietet Lesezugriff + Export darauf. Login laeuft wie beim
     Task-Service ueber den gemeinsamen Keycloak.
 
+
+    Versionierung und Korrelation wie beim Task-Service: Hauptversion im Pfad
+    (/v1/...), unversionierte Pfade aus 1.0.0 bleiben als deprecated Alias;
+    optionaler Header "X-Correlation-ID" wird uebernommen bzw. erzeugt und in
+    der Response zurueckgegeben.
+
+
+    Konsistenz: die History ist "eventually consistent" - eine Aenderung am
+    Task-Service erscheint hier erst, nachdem das zugehoerige Event ueber
+    RabbitMQ verarbeitet wurde (typisch < 1 s).
+
 servers:
   - url: http://localhost:8091
-    description: Lokale Instanz des History/Export-Service (Python)
+    description: Lokale Instanz des History/Export-Service (Python, bzw. Load-Balancer vor mehreren Instanzen)
 
 security:
   - oauth2Password: []
@@ -30,46 +41,54 @@ paths:
               schema:
                 $ref: "#/components/schemas/HealthResponse"
 
-  /history:
+  /v1/history:
     get:
       summary: Listet die History-Eintraege des eingeloggten Benutzers.
-      operationId: listHistory
+      operationId: listHistoryV1
+      parameters:
+        - $ref: "#/components/parameters/CorrelationId"
       responses:
         "200":
-          description: History-Eintraege, neueste zuerst.
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/HistoryEntry"
+          $ref: "#/components/responses/HistoryList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /v1/export:
+    get:
+      summary: Exportiert die History des eingeloggten Benutzers.
+      operationId: exportHistoryV1
+      parameters:
+        - $ref: "#/components/parameters/ExportFormat"
+        - $ref: "#/components/parameters/CorrelationId"
+      responses:
+        "200":
+          $ref: "#/components/responses/ExportFile"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # --- Deprecated: unversionierte Pfade aus Vertrag 1.0.0 ---
+
+  /history:
+    get:
+      summary: "Deprecated - Alias fuer GET /v1/history."
+      operationId: listHistory
+      deprecated: true
+      responses:
+        "200":
+          $ref: "#/components/responses/HistoryList"
         "401":
           $ref: "#/components/responses/Unauthorized"
 
   /export:
     get:
-      summary: Exportiert die History des eingeloggten Benutzers.
+      summary: "Deprecated - Alias fuer GET /v1/export."
       operationId: exportHistory
+      deprecated: true
       parameters:
-        - name: format
-          in: query
-          required: false
-          schema:
-            type: string
-            enum: [json, csv]
-            default: json
+        - $ref: "#/components/parameters/ExportFormat"
       responses:
         "200":
-          description: Export-Datei.
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/HistoryEntry"
-            text/csv:
-              schema:
-                type: string
+          $ref: "#/components/responses/ExportFile"
         "401":
           $ref: "#/components/responses/Unauthorized"
 
@@ -85,7 +104,55 @@ components:
           tokenUrl: http://localhost:8082/realms/task-mgmt/protocol/openid-connect/token
           scopes: {}
 
+  parameters:
+    ExportFormat:
+      name: format
+      in: query
+      required: false
+      schema:
+        type: string
+        enum: [json, csv]
+        default: json
+    CorrelationId:
+      name: X-Correlation-ID
+      in: header
+      required: false
+      description: Korrelations-ID fuer das Tracing ueber Service-Grenzen hinweg.
+      schema:
+        type: string
+
+  headers:
+    CorrelationId:
+      description: Die verwendete (uebernommene oder neu erzeugte) Korrelations-ID.
+      schema:
+        type: string
+
   responses:
+    HistoryList:
+      description: History-Eintraege, neueste zuerst.
+      headers:
+        X-Correlation-ID:
+          $ref: "#/components/headers/CorrelationId"
+      content:
+        application/json:
+          schema:
+            type: array
+            items:
+              $ref: "#/components/schemas/HistoryEntry"
+    ExportFile:
+      description: Export-Datei.
+      headers:
+        X-Correlation-ID:
+          $ref: "#/components/headers/CorrelationId"
+      content:
+        application/json:
+          schema:
+            type: array
+            items:
+              $ref: "#/components/schemas/HistoryEntry"
+        text/csv:
+          schema:
+            type: string
     Unauthorized:
       description: Fehlender, ungueltiger oder abgelaufener Access-Token.
       content:
@@ -113,6 +180,9 @@ components:
         occurredAt:
           type: string
           format: date-time
+        correlationId:
+          type: string
+          description: Korrelations-ID des ausloesenden Requests am Task-Service (falls bekannt).
 
     HealthResponse:
       type: object
@@ -123,10 +193,18 @@ components:
           enum: [UP]
         service:
           type: string
+        version:
+          type: string
+          description: Implementierte Vertragsversion.
+        instance:
+          type: string
+          description: Hostname der antwortenden Instanz (zeigt die Lastverteilung).
 
     ErrorResponse:
       type: object
       required: [error]
       properties:
         error:
+          type: string
+        correlationId:
           type: string

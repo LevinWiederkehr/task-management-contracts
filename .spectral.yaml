@@ -1,0 +1,13 @@
+extends:
+  - spectral:oas
+  - spectral:asyncapi
+rules:
+  # Stil-Regeln, die fuer dieses kleine Projekt keinen Mehrwert bringen
+  operation-tags: off
+  operation-description: off
+  info-contact: off
+  asyncapi-info-contact: off
+  asyncapi-tags: off
+  asyncapi-info-license: off
+  asyncapi-operation-description: off
+  asyncapi-latest-version: off

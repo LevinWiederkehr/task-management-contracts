@@ -24,6 +24,17 @@ sonst bricht die Interoperabilitaet, ohne dass man es sofort merkt.
 Beide OpenAPI-Dateien lassen sich z.B. auf https://editor.swagger.io ansehen
 und testen (Datei-Inhalt einfuegen).
 
+Die Vertraege sind versioniert (SemVer in `info.version`, Git-Tag `vX.Y.Z`,
+siehe [`CHANGELOG.md`](CHANGELOG.md)). Wie Breaking Changes ohne
+gleichzeitiges Deployment ablaufen (Expand and Contract, Tolerant Reader),
+steht in [`EVOLUTION.md`](EVOLUTION.md). Jeder Push wird per GitHub Actions
+mit [Spectral](https://github.com/stoplightio/spectral) gelintet
+(`.github/workflows/lint-contracts.yml`), lokal:
+
+```
+npx @stoplight/spectral-cli lint openapi/*.yaml asyncapi/*.yaml
+```
+
 ## Architektur-Uebersicht
 
 ```

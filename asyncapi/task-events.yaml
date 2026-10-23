@@ -1,7 +1,7 @@
 asyncapi: 2.6.0
 info:
   title: Task-Events (Task-Management-System)
-  version: "1.0.0"
+  version: "1.1.0"
   description: >-
     Asynchrone Schnittstelle zwischen dem Task-Service (Provider, Delphi) und
     dem History/Export-Service (Consumer, Python). Der Task-Service published
@@ -10,18 +10,38 @@ info:
     Benutzer aufzubauen. Diese Datei ist die verbindliche Vertragsgrundlage -
     Aenderungen am Event-Format werden zuerst hier nachgefuehrt.
 
-    Routing-Model: Fanout. Jede Nachricht wird an alle aktuell gebundenen
-    Consumer verteilt (Broadcast) - passend, weil in Zukunft weitere Services
-    (z.B. Benachrichtigungen) ohne Aenderung am Task-Service dazukommen
-    koennten.
+
+    Routing-Model: Fanout. Jede Nachricht wird an alle gebundenen Queues
+    verteilt (Broadcast) - passend, weil in Zukunft weitere Services (z.B.
+    Benachrichtigungen) ohne Aenderung am Task-Service dazukommen koennen.
+    Jeder konsumierende Service bindet genau EINE durable, benannte Queue
+    ("<service-name>.task-events"). Alle Instanzen eines Services lesen aus
+    dieser gemeinsamen Queue (Competing Consumers) - so laesst sich ein
+    Consumer horizontal skalieren, und Events bleiben in der Queue liegen,
+    waehrend ein Consumer ausgefallen ist oder neu deployed wird.
+
+
+    Zustellgarantie: at-least-once. Der Publisher schreibt das Event in
+    derselben DB-Transaktion wie die Aenderung in eine Outbox und versendet es
+    asynchron (mit Retry), bis der Broker den Empfang bestaetigt. Dadurch kann
+    ein Event mehrfach ankommen. Consumer MUESSEN deshalb idempotent sein und
+    anhand von "eventId" deduplizieren.
+
+
+    Evolution (Tolerant Reader): Consumer ignorieren unbekannte Felder und
+    behandeln fehlende optionale Felder mit Defaults. Additive Aenderungen
+    erhoehen die Minor-Version, "schemaVersion" bleibt gleich. Breaking
+    Changes erhoehen "schemaVersion" und laufen nach Expand and Contract
+    (siehe EVOLUTION.md).
+
 
     Transport-Hinweis (bewusste Interoperabilitaets-Demo): der Task-Service
     (Delphi) published per STOMP (RabbitMQ-STOMP-Plugin, Port 61613), weil es
     dafuer keine Delphi-AMQP-Bibliothek braucht. Der History-Service (Python)
     konsumiert ganz normal per AMQP 0-9-1 (z.B. mit "pika", Port 5672).
-    RabbitMQ vermittelt zwischen beiden Protokollen auf demselben Exchange -
-    fuer den Exchange/die Queue spielt es keine Rolle, mit welchem Protokoll
-    publiziert wurde.
+    RabbitMQ vermittelt zwischen beiden Protokollen auf demselben Exchange.
+    Die STOMP-Header "correlation-id" und "message-id" (=eventId) werden von
+    RabbitMQ auf die AMQP-Properties correlation_id und message_id abgebildet.
 
 servers:
   rabbitmq-amqp:
@@ -36,10 +56,8 @@ servers:
 channels:
   task-events:
     description: >-
-      Fanout-Exchange "task-events". Der History-Service bindet dafuer beim
-      Start eine eigene, exklusive Queue an diesen Exchange (wie beim
-      Fanout-Beispiel im M321-Demo-Projekt) und erhaelt so eine Kopie jedes
-      Events.
+      Fanout-Exchange "task-events" (durable). Der History-Service bindet die
+      durable Queue "history-export-service.task-events" daran.
     bindings:
       amqp:
         is: routingKey
@@ -56,6 +74,9 @@ channels:
     subscribe:
       operationId: consumeTaskEvent
       summary: Empfaengt jede Zustandsaenderung (Broadcast) fuer die History.
+      bindings:
+        amqp:
+          ack: true
       message:
         $ref: "#/components/messages/TaskEvent"
 
@@ -69,6 +90,12 @@ components:
         Ein einzelnes Ereignis zu einer Aufgabe. Ein Event-Typ-Feld statt
         getrennter Exchanges/Routingkeys, weil Fanout ohnehin an alle
         Consumer verteilt - der Consumer filtert/verarbeitet nach eventType.
+      correlationId:
+        description: Korrelations-ID des ausloesenden HTTP-Requests.
+        location: "$message.payload#/correlationId"
+      bindings:
+        amqp:
+          deliveryMode: 2
       payload:
         $ref: "#/components/schemas/TaskEvent"
 
@@ -81,6 +108,14 @@ components:
           type: string
           format: uuid
           description: Eindeutige ID des Events (fuer Idempotenz/Deduplizierung beim Consumer).
+        schemaVersion:
+          type: integer
+          minimum: 1
+          default: 1
+          description: >-
+            Hauptversion des Event-Schemas (seit 1.1.0). Fehlt das Feld
+            (Publisher mit Vertrag 1.0.0), gilt 1. Wird nur bei Breaking
+            Changes erhoeht.
         eventType:
           type: string
           enum: [TASK_CREATED, TASK_UPDATED, TASK_COMPLETED, TASK_DELETED]
@@ -103,12 +138,19 @@ components:
         occurredAt:
           type: string
           format: date-time
-          description: Zeitpunkt der Aenderung (ISO-8601 mit Offset).
+          description: Zeitpunkt der Aenderung (ISO-8601, UTC mit "Z").
+        correlationId:
+          type: string
+          description: >-
+            Korrelations-ID des ausloesenden HTTP-Requests (seit 1.1.0,
+            optional). Wird vom Consumer in jedem Log-Eintrag mitgeloggt.
       example:
         eventId: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+        schemaVersion: 1
         eventType: "TASK_COMPLETED"
         taskId: "42"
         ownerUserId: "1c3274f0-cd08-4377-afb6-eb7d591a38c6"
         title: "Rechnung schreiben"
         status: "DONE"
-        occurredAt: "2026-09-18T10:15:30+02:00"
+        occurredAt: "2026-09-18T08:15:30.000Z"
+        correlationId: "b7e2c1d0-8f1a-4c5e-9d3b-2a6f0e4c7b11"
