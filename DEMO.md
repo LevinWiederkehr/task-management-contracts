@@ -46,20 +46,18 @@ und den Broker.
 ./scripts/e2e-test.ps1 -Resilience
 ```
 
-Oder manuell, eindrucksvoller:
+Der Ausfall des History-Service geht nur ueber das Skript (Abschnitt 7),
+weil die Web-Oberflaeche selbst vom History-Service ausgeliefert wird und
+dann ebenfalls weg ist. Der Rest manuell:
 
-1. `docker compose stop history` (Python-Repo) -> in der UI Aufgaben anlegen:
-   Task-Service antwortet sofort. RabbitMQ-UI: Nachrichten stauen sich in
-   `history-export-service.task-events`.
-2. `docker compose start history` -> Queue leert sich, History ist komplett.
-3. `docker stop contracts-rabbitmq-1` -> Aufgabe anlegen: geht trotzdem
+1. `docker stop contracts-rabbitmq-1` -> Aufgabe anlegen: geht trotzdem
    (Outbox). `/health` des Task-Service zeigt `pendingEvents: 1`.
    `docker start contracts-rabbitmq-1` -> Event kommt nach (Delphi-Konsole
-   zeigt die Retries mit Backoff).
-4. Skalieren: `docker compose up -d --scale history=4 --no-recreate` ->
+   zeigt die Retries mit Backoff, bis zu 30 s).
+2. Skalieren: `docker compose up -d --scale history=4 --no-recreate` ->
    mehrmals http://localhost:8091/health aufrufen, `instance` wechselt.
    RabbitMQ-UI: 4 Consumer an der Queue.
-5. Idempotenz: In der RabbitMQ-UI (Exchange `task-events` -> Publish message)
+3. Idempotenz: In der RabbitMQ-UI (Exchange `task-events` -> Publish message)
    dasselbe Event zweimal publizieren -> nur ein History-Eintrag, im Log
    "Duplikat ignoriert".
 
@@ -71,7 +69,8 @@ mit einer anderen `EVENT_PHASE` neu gestartet. Generalprobe vorher:
 `./scripts/breaking-change-test.ps1`.
 
 Vorbereitung: `./scripts/show-events.ps1` einmal ausfuehren (legt eine
-zusaetzliche Queue an, die eine Kopie jedes Events sammelt).
+zusaetzliche Queue an, die eine Kopie jedes Events sammelt). Erst **nach**
+einem RabbitMQ-Neustart ausfuehren - die Queue ist nicht durable.
 
 1. **Ausgangslage**: Vertrag `asyncapi/task-events.yaml` zeigen. In der UI
    eine Aufgabe anlegen, dann `./scripts/show-events.ps1`:
