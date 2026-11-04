@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Task-Service (Task-Management-System)
-  version: "1.1.0"
+  version: "1.2.0"
   description: >-
     Schnittstellenbeschreibung fuer den Task-Service (Provider:
     task-service-delphi). Verwaltet Aufgaben ("Tasks") pro eingeloggtem
@@ -336,6 +336,18 @@ components:
         version:
           type: string
           description: Implementierte Vertragsversion.
+        eventPhase:
+          type: integer
+          minimum: 1
+          maximum: 3
+          description: >-
+            Aktive Phase des Event-Breaking-Change "title" -> "name" (seit
+            1.2.0): 1 = nur title, 2 = title und name, 3 = nur name
+            (schemaVersion 2). Siehe EVOLUTION.md.
+        pendingEvents:
+          type: integer
+          minimum: 0
+          description: Anzahl Events in der Outbox, die noch nicht beim Broker angekommen sind.
 
     ErrorResponse:
       type: object

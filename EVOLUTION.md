@@ -29,18 +29,48 @@ kennt, Semantik aendern.
 
 ## Vorgehen bei einem Breaking Change: Expand and Contract
 
-Beispiel: Im Event soll `title` kuenftig `name` heissen.
+Umgesetztes Beispiel: Im Event soll `title` kuenftig `name` heissen.
 
 | Phase | Contracts | Task-Service (Publisher) | History-Service (Consumer) |
 | --- | --- | --- | --- |
-| 0. Ausgangslage | 1.1.0 | sendet `title` | liest `title` |
-| 1. **Expand** | 1.2.0: `name` optional hinzu, `title` deprecated | sendet `title` **und** `name` (deploy) | unveraendert, laeuft weiter |
-| 2. **Migrate** | - | - | liest `name`, Fallback auf `title` (deploy, siehe "Live-Migration") |
-| 3. **Contract** | 2.0.0: `title` entfernt, `schemaVersion: 2` | sendet nur noch `name` (deploy) | - |
+| 0. Ausgangslage | 1.1.0 | sendet `title` (`EVENT_PHASE=1`) | liest `title` |
+| 1. **Expand** | 1.2.0: `name` optional hinzu, `title` deprecated | sendet `title` **und** `name` (`EVENT_PHASE=2`) | unveraendert, laeuft weiter |
+| 2. **Migrate** | - | - | liest `name`, Fallback auf `title` (eigenes Deployment, siehe "Live-Migration") |
+| 3. **Contract** | 2.0.0 (`task-events-v2.yaml`): `title` entfernt, `schemaVersion: 2` | sendet nur noch `name` (`EVENT_PHASE=3`) | - |
 
 Zwischen den Phasen ist das System jederzeit lauffaehig, jede Phase ist
 ein einzelnes, unabhaengiges Deployment. Phase 3 erst, wenn **alle**
 Consumer Phase 2 erreicht haben (Fanout: auch zukuenftige Consumer pruefen).
+
+**Stand:** Contracts 1.2.0 und Entwurf 2.0.0 sind veroeffentlicht, der
+Task-Service kann alle Phasen. Phase 2 (Migrate) gehoert dem Team des
+History-Service und steht noch aus - deshalb laeuft produktiv Phase 1
+bzw. 2, nie 3.
+
+### Umschalten per Feature Toggle
+
+Der Publisher-Code fuer **alle** Phasen ist bereits deployed; die aktive
+Phase kommt aus der Umgebungsvariable `EVENT_PHASE`
+(`TaskModel.BuildTaskEventJson`, `/health` zeigt `eventPhase`). Vorteile:
+
+- Phasenwechsel ohne Build: nur Neustart mit anderer Konfiguration
+  (`scripts/set-event-phase.ps1 <1-3>`, 1-2 s; Events gehen dank Outbox
+  nicht verloren).
+- Rollback ist derselbe Schritt mit der alten Phase.
+- Das Flag steuert nur die Reihenfolge der Phasen - es ersetzt weder den
+  Vertrag noch die Migration der Consumer. Ein einfacher Schalter "alt/neu"
+  waere selbst ein Breaking Change fuer alle Consumer gleichzeitig.
+- Ungueltige Werte: Der Service startet nicht, statt still ein falsches
+  Format zu senden.
+
+### Was passiert, wenn Contract zu frueh kommt
+
+`EVENT_PHASE=3` mit dem noch nicht migrierten History-Service (getestet mit
+`scripts/breaking-change-test.ps1`): Der Consumer erkennt `schemaVersion 2`,
+bestaetigt das Event und loggt "Event uebersprungen: schemaVersion 2 wird
+nicht unterstuetzt". Kein Absturz, keine blockierte Queue - aber die History
+bekommt diese Events nicht. Genau deshalb kommt Contract erst nach der
+Migration aller Consumer.
 
 Fuer REST gilt dasselbe Muster auf Pfad-Ebene: `/v2/...` kommt dazu
 (Expand), Clients migrieren, `/v1/...` wird erst `deprecated`, dann

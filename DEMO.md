@@ -30,7 +30,7 @@ gemeinsame DB, Kopplung nur ueber Vertraege + Broker.
 ## 3. Vertraege (Kriterium 2) - 2 min
 
 `openapi/*.yaml`, `asyncapi/task-events.yaml`, `CHANGELOG.md`, Git-Tag
-`v1.1.0`, Spectral-Lint in GitHub Actions. http://localhost:8091/docs zeigt
+`v1.2.0`, Spectral-Lint in GitHub Actions. http://localhost:8091/docs zeigt
 die DTOs (Pydantic) - getrennt vom Speichermodell.
 
 ## 4. Observability (Kriterium 5) - 2 min
@@ -66,29 +66,49 @@ Oder manuell, eindrucksvoller:
 ## 6. Breaking Change live (Kriterium 7) - 5 min
 
 Vorgehen nach `EVOLUTION.md`, Beispiel: Event-Feld `title` -> `name`.
+Nichts wird live programmiert oder kompiliert - der Task-Service wird nur
+mit einer anderen `EVENT_PHASE` neu gestartet. Generalprobe vorher:
+`./scripts/breaking-change-test.ps1`.
 
-1. **Expand** (contracts 1.2.0): `name` als optionales Feld, `title` deprecated.
-   Delphi `TaskModel.BuildTaskEventJson`: zusaetzlich
-   `Body.AddPair('name', ATask.Title);` -> `run.cmd`. Python laeuft unveraendert
-   weiter (Tolerant Reader ignoriert `name`).
-2. **Migrate** Consumer, live ohne Unterbruch: in `app/events.py`
-   `title = payload.get("name") or payload["title"]` (Pflichtfeld-Pruefung
-   anpassen). Dann Blue/Green im Python-Repo, waehrend in der UI weiter
-   Aufgaben angelegt werden:
+Vorbereitung: `./scripts/show-events.ps1` einmal ausfuehren (legt eine
+zusaetzliche Queue an, die eine Kopie jedes Events sammelt).
+
+1. **Ausgangslage**: Vertrag `asyncapi/task-events.yaml` zeigen. In der UI
+   eine Aufgabe anlegen, dann `./scripts/show-events.ps1`:
+   `schemaVersion 1`, nur `title`.
+2. **Expand** (Vertrag 1.2.0: `name` optional, `title` deprecated, siehe
+   `CHANGELOG.md`):
    ```
-   docker compose build history
+   ./scripts/set-event-phase.ps1 2
+   ```
+   Aufgabe anlegen, `show-events.ps1`: beide Felder. History in der UI
+   fuellt sich normal - der Python-Service ist **unveraendert** und ignoriert
+   `name` (Tolerant Reader).
+3. **Migrate** (erklaeren): Der History-Service liest kuenftig `name` mit
+   Fallback auf `title`. Das ist ein eigenes Deployment des anderen Teams.
+   Dass so ein Wechsel ohne Unterbruch geht, zeigt Blue/Green im Python-Repo
+   (mit dem bestehenden Image, waehrend in der UI Aufgaben angelegt werden):
+   ```
    docker compose up -d --no-recreate --scale history=4   # 2 alte + 2 neue Instanzen
    docker compose ps                                      # die zwei aeltesten sind die alten
    docker stop <alt-1> <alt-2>; docker rm <alt-1> <alt-2>
    ```
-   Alte und neue Instanzen teilen sich kurz die Queue, nginx verteilt auf
-   alle; `docker stop` beendet die alten sauber (laufende Requests werden
-   fertig bearbeitet). Getestet: 358 Requests waehrend der Migration,
-   0 Fehler, keine verlorenen Events.
-3. **Contract** (contracts 2.0.0, `schemaVersion: 2`): erst wenn alle Consumer
-   migriert sind, sendet Delphi nur noch `name`. Ein alter Consumer wuerde
-   `schemaVersion 2` sauber ueberspringen statt abzustuerzen (Test
-   `test_unbekannte_schema_version_wird_uebersprungen`).
+   Getestet: 358 Requests waehrend der Migration, 0 Fehler.
+4. **Contract zu frueh** (Vertrag 2.0.0 = `asyncapi/task-events-v2.yaml`):
+   ```
+   ./scripts/set-event-phase.ps1 3
+   ```
+   Aufgabe anlegen: `show-events.ps1` zeigt `schemaVersion 2`, nur `name`.
+   Die History bekommt **keinen** Eintrag; in Seq steht
+   "Event uebersprungen: schemaVersion 2 wird nicht unterstuetzt". Kein
+   Absturz, Queue laeuft weiter - aber Daten fehlen. Darum: Contract erst,
+   wenn alle Consumer migriert sind.
+5. **Rollback**: `./scripts/set-event-phase.ps1 1` (bzw. 2) - sofort wieder
+   alles in Ordnung. Am Schluss `./scripts/show-events.ps1 -Remove`.
+
+Waehrend jedes Neustarts (1-2 s) schlagen HTTP-Requests an den Task-Service
+fehl (nur eine Instanz). Events gehen nicht verloren - sie liegen in der
+Outbox.
 
 Dasselbe auf REST-Ebene ist bereits umgesetzt: `/tasks` -> `/v1/tasks`,
 alte Pfade antworten weiterhin, mit Header `Deprecation: true`.

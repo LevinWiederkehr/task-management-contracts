@@ -90,7 +90,8 @@ $response = Invoke-WebRequest -Method Post -Uri "$TaskUrl/v1/tasks" -Headers $he
     -ContentType "application/json" -Body (@{ title = "E2E-Test $correlationId" } | ConvertTo-Json)
 $task = $response.Content | ConvertFrom-Json
 Check "POST /v1/tasks -> 201" ($response.StatusCode -eq 201)
-Check "Korrelations-ID im Response-Header" ($response.Headers["X-Correlation-ID"] -eq $correlationId)
+# "$(...)": PowerShell 7 liefert Header als Array, 5.1 als String.
+Check "Korrelations-ID im Response-Header" ("$($response.Headers["X-Correlation-ID"])" -eq $correlationId)
 $null = Invoke-RestMethod -Method Put -Uri "$TaskUrl/v1/tasks/$($task.id)" -Headers $headers `
     -ContentType "application/json" -Body '{"status":"DONE"}'
 $null = Invoke-WebRequest -Method Delete -Uri "$TaskUrl/v1/tasks/$($task.id)" -Headers $headers -UseBasicParsing

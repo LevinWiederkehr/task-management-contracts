@@ -33,6 +33,14 @@ selben Ordner geklont.
 Systemtest: `./scripts/e2e-test.ps1 -Resilience` (Durchstich, Autorisierung,
 Lastverteilung, Korrelation in Seq, Ausfall des Consumers).
 
+Breaking Change (`title` -> `name` im Event, siehe [`EVOLUTION.md`](EVOLUTION.md)):
+
+```
+./scripts/set-event-phase.ps1 2          # Task-Service in Phase 1/2/3 neu starten
+./scripts/show-events.ps1                # rohe Events aus RabbitMQ anzeigen
+./scripts/breaking-change-test.ps1       # alle Phasen automatisch durchspielen
+```
+
 ## Dokumentation
 
 | Dokument | Inhalt |
@@ -52,7 +60,10 @@ Service uebernommen - nach den Regeln in [`EVOLUTION.md`](EVOLUTION.md).
 - [`openapi/history-export-service.yaml`](openapi/history-export-service.yaml) - REST-API des History/Export-Service
 - [`asyncapi/task-events.yaml`](asyncapi/task-events.yaml) - Event-Format zwischen den beiden
 
-Aktuelle Version: **1.1.0**. Jeder Push wird per GitHub Actions mit
+Aktuelle Version: **1.2.0** (Task-Service und Events; der History-Service
+ist unveraendert auf 1.1.0). Die naechste Hauptversion der Events liegt als
+Entwurf in [`asyncapi/task-events-v2.yaml`](asyncapi/task-events-v2.yaml).
+Jeder Push wird per GitHub Actions mit
 [Spectral](https://github.com/stoplightio/spectral) gelintet, lokal:
 
 ```

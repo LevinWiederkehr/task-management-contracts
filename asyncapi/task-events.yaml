@@ -1,7 +1,7 @@
 asyncapi: 2.6.0
 info:
   title: Task-Events (Task-Management-System)
-  version: "1.1.0"
+  version: "1.2.0"
   description: >-
     Asynchrone Schnittstelle zwischen dem Task-Service (Provider, Delphi) und
     dem History/Export-Service (Consumer, Python). Der Task-Service published
@@ -33,6 +33,12 @@ info:
     erhoehen die Minor-Version, "schemaVersion" bleibt gleich. Breaking
     Changes erhoehen "schemaVersion" und laufen nach Expand and Contract
     (siehe EVOLUTION.md).
+
+
+    Laufender Breaking Change (Expand-Phase): "title" wird zu "name". Seit
+    1.2.0 sendet der Publisher beide Felder mit demselben Wert; Consumer
+    sollen auf "name" umstellen (Fallback "title"). Mit 2.0.0
+    (task-events-v2.yaml, schemaVersion 2) entfaellt "title".
 
 
     Transport-Hinweis (bewusste Interoperabilitaets-Demo): der Task-Service
@@ -130,7 +136,15 @@ components:
             der History-Service die History pro Benutzer filtern kann.
         title:
           type: string
-          description: Titel der Aufgabe zum Zeitpunkt des Events.
+          deprecated: true
+          description: >-
+            Titel der Aufgabe zum Zeitpunkt des Events. Deprecated seit 1.2.0,
+            ersetzt durch "name"; entfaellt mit 2.0.0 (schemaVersion 2).
+        name:
+          type: string
+          description: >-
+            Titel der Aufgabe zum Zeitpunkt des Events (seit 1.2.0, optional,
+            gleicher Wert wie "title"). Ersetzt "title" ab 2.0.0.
         status:
           type: string
           enum: [OPEN, DONE, DELETED]
@@ -151,6 +165,7 @@ components:
         taskId: "42"
         ownerUserId: "1c3274f0-cd08-4377-afb6-eb7d591a38c6"
         title: "Rechnung schreiben"
+        name: "Rechnung schreiben"
         status: "DONE"
         occurredAt: "2026-09-18T08:15:30.000Z"
         correlationId: "b7e2c1d0-8f1a-4c5e-9d3b-2a6f0e4c7b11"

@@ -15,10 +15,12 @@
 .EXAMPLE
   ./start-all.ps1
   ./start-all.ps1 -HistoryReplicas 3 -Test
+  ./start-all.ps1 -EventPhase 2      # Breaking-Change-Phase, siehe EVOLUTION.md
 #>
 param(
     [int]$HistoryReplicas = 2,
     [int]$TaskPort = 0,
+    [ValidateRange(1, 3)][int]$EventPhase = 1,
     [string]$ServicesRoot = (Split-Path $PSScriptRoot -Parent),
     [switch]$Test
 )
@@ -106,6 +108,8 @@ if ($alreadyRunning) {
     $env:PORT = "$TaskPort"
     $env:SEQ_URL = "http://localhost:5341"
     $env:DB_PATH = Join-Path $taskDir "tasks.db"
+    # Explizit setzen: scripts/set-event-phase.ps1 hinterlaesst sonst seine Phase in der Sitzung.
+    $env:EVENT_PHASE = "$EventPhase"
     $process = Start-Process -FilePath $exe -WorkingDirectory $taskDir -PassThru
     $process.Id | Set-Content $pidFile
     $deadline = (Get-Date).AddSeconds(20)

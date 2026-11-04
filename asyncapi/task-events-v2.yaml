@@ -1,0 +1,105 @@
+asyncapi: 2.6.0
+info:
+  title: Task-Events (Task-Management-System) - schemaVersion 2
+  version: "2.0.0"
+  description: >-
+    ENTWURF der naechsten Hauptversion (Contract-Phase des Breaking Change
+    "title" -> "name", siehe EVOLUTION.md). Gueltig erst, wenn ALLE Consumer
+    "name" lesen - bis dahin gilt task-events.yaml (1.2.0).
+
+
+    Aenderung gegenueber 1.2.0: "title" entfaellt, "name" ist Pflicht,
+    "schemaVersion" ist 2. Alles andere (Exchange, Zustellgarantie,
+    Idempotenz ueber "eventId", Transport) bleibt unveraendert wie in
+    task-events.yaml beschrieben.
+
+
+    Ein Consumer, der schemaVersion 2 noch nicht kennt, bestaetigt das Event
+    und ueberspringt es (Tolerant Reader) - er stuerzt nicht ab, verpasst
+    aber den Inhalt. Deshalb darf der Publisher erst umstellen, wenn alle
+    Consumer migriert sind.
+
+servers:
+  rabbitmq-amqp:
+    url: localhost:5672
+    protocol: amqp
+  rabbitmq-stomp:
+    url: localhost:61613
+    protocol: stomp
+
+channels:
+  task-events:
+    description: Fanout-Exchange "task-events" (durable), unveraendert.
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: task-events
+          type: fanout
+          durable: true
+          autoDelete: false
+    publish:
+      operationId: publishTaskEventV2
+      summary: Meldet eine Zustandsaenderung einer Aufgabe (schemaVersion 2).
+      message:
+        $ref: "#/components/messages/TaskEventV2"
+    subscribe:
+      operationId: consumeTaskEventV2
+      summary: Empfaengt jede Zustandsaenderung (Broadcast) fuer die History.
+      message:
+        $ref: "#/components/messages/TaskEventV2"
+
+components:
+  messages:
+    TaskEventV2:
+      name: TaskEventV2
+      title: Task-Event (schemaVersion 2)
+      contentType: application/json
+      correlationId:
+        description: Korrelations-ID des ausloesenden HTTP-Requests.
+        location: "$message.payload#/correlationId"
+      payload:
+        $ref: "#/components/schemas/TaskEventV2"
+
+  schemas:
+    TaskEventV2:
+      type: object
+      required: [eventId, schemaVersion, eventType, taskId, ownerUserId, name, status, occurredAt]
+      properties:
+        eventId:
+          type: string
+          format: uuid
+          description: Eindeutige ID des Events (fuer Idempotenz/Deduplizierung beim Consumer).
+        schemaVersion:
+          type: integer
+          const: 2
+          description: Hauptversion des Event-Schemas, ab dieser Version Pflicht.
+        eventType:
+          type: string
+          enum: [TASK_CREATED, TASK_UPDATED, TASK_COMPLETED, TASK_DELETED]
+        taskId:
+          type: string
+        ownerUserId:
+          type: string
+          description: '"sub"-Claim (Keycloak-User-ID) des Besitzers der Aufgabe.'
+        name:
+          type: string
+          description: Titel der Aufgabe zum Zeitpunkt des Events (vorher "title").
+        status:
+          type: string
+          enum: [OPEN, DONE, DELETED]
+        occurredAt:
+          type: string
+          format: date-time
+        correlationId:
+          type: string
+      example:
+        eventId: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+        schemaVersion: 2
+        eventType: "TASK_COMPLETED"
+        taskId: "42"
+        ownerUserId: "1c3274f0-cd08-4377-afb6-eb7d591a38c6"
+        name: "Rechnung schreiben"
+        status: "DONE"
+        occurredAt: "2026-09-18T08:15:30.000Z"
+        correlationId: "b7e2c1d0-8f1a-4c5e-9d3b-2a6f0e4c7b11"
