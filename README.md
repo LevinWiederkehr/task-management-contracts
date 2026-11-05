@@ -23,7 +23,7 @@ selben Ordner geklont.
 
 | Was | Adresse | Login |
 | --- | --- | --- |
-| Web-Oberflaeche | http://localhost:8091/ui | `levin`/`levin123`, `max`/`max123` |
+| Web-Oberflaeche | http://localhost:8091/ui | `levin`/`levin123`, `luca`/`luca123` |
 | Task-Service (Delphi) | http://localhost:8090 (bzw. 8095, falls 8090 belegt) | Bearer-Token |
 | History-Service (Load-Balancer) | http://localhost:8091, Swagger: `/docs` | Bearer-Token |
 | Seq (zentrale Logs) | http://localhost:5341 | - |

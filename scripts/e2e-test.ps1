@@ -104,10 +104,10 @@ Check "3 Events mit derselben Korrelations-ID" ($events.Count -eq 3) "gefunden: 
 Check "Reihenfolge CREATED, COMPLETED, DELETED" ($types -eq "TASK_CREATED,TASK_COMPLETED,TASK_DELETED") $types
 
 Write-Host "`n4. Autorisierung (ressourcenbasiert)"
-$max = @{ Authorization = "Bearer " + (Get-Token "max" "max123") }
-$maxAll = Invoke-RestMethod -Uri "$HistoryUrl/v1/history" -Headers $max
-$maxHistory = @($maxAll | Where-Object { $_.correlationId -eq $correlationId })
-Check "Benutzer max sieht levins History nicht" ($maxHistory.Count -eq 0)
+$luca = @{ Authorization = "Bearer " + (Get-Token "luca" "luca123") }
+$lucaAll = Invoke-RestMethod -Uri "$HistoryUrl/v1/history" -Headers $luca
+$lucaHistory = @($lucaAll | Where-Object { $_.correlationId -eq $correlationId })
+Check "Benutzer luca sieht levins History nicht" ($lucaHistory.Count -eq 0)
 try { Invoke-RestMethod -Uri "$HistoryUrl/v1/history" | Out-Null; $status = 200 } catch { $status = [int]$_.Exception.Response.StatusCode }
 Check "Ohne Token -> 401" ($status -eq 401)
 

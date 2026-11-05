@@ -18,6 +18,7 @@
   ],
   "users": [
     {
+      "id": "b9b1165e-9e47-42f1-b46f-837d0643ec70",
       "username": "levin",
       "enabled": true,
       "firstName": "Levin",
@@ -30,15 +31,16 @@
       ]
     },
     {
-      "username": "max",
+      "id": "39af5483-a71d-43bc-b506-c019e037f0b7",
+      "username": "luca",
       "enabled": true,
-      "firstName": "Max",
+      "firstName": "Luca",
       "lastName": "Muster",
-      "email": "max@example.com",
+      "email": "luca@example.com",
       "emailVerified": true,
       "requiredActions": [],
       "credentials": [
-        { "type": "password", "value": "max123", "temporary": false }
+        { "type": "password", "value": "luca123", "temporary": false }
       ]
     }
   ]

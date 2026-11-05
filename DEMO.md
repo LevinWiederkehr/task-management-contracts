@@ -24,7 +24,7 @@ gemeinsame DB, Kopplung nur ueber Vertraege + Broker.
 
 1. UI: als `levin` einloggen (Keycloak), Aufgabe anlegen, erledigen, loeschen.
 2. History fuellt sich asynchron - Spalte "Korrelation" und "Instanz" zeigen.
-3. Zweites Browserfenster (privat) als `max`: sieht nichts von levin.
+3. Zweites Browserfenster (privat) als `luca`: sieht nichts von levin.
 4. Optional Terminal: manipulierter Token -> 401 (siehe `scripts/e2e-test.ps1`).
 
 ## 3. Vertraege (Kriterium 2) - 2 min
